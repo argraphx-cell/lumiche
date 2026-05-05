@@ -29,6 +29,11 @@ export default function HeroSlideshow() {
   const [visIdx, setVisIdx] = useState(0);
   const [dotIdx, setDotIdx] = useState(0);
   const [showCanvas, setShowCanvas] = useState(false);
+  // Read navbar height synchronously so there is no layout flash, then keep
+  // it updated via ResizeObserver for any zoom/resize changes.
+  const [navbarH, setNavbarH] = useState(
+    () => document.querySelector<HTMLElement>("header")?.offsetHeight ?? 0
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -44,6 +49,14 @@ export default function HeroSlideshow() {
       img.src = src;
       imgEls.current[i] = img;
     });
+  }, []);
+
+  useEffect(() => {
+    const header = document.querySelector<HTMLElement>("header");
+    if (!header) return;
+    const ro = new ResizeObserver(() => setNavbarH(header.offsetHeight));
+    ro.observe(header);
+    return () => ro.disconnect();
   }, []);
 
   const dissolve = useCallback(
@@ -157,7 +170,7 @@ export default function HeroSlideshow() {
     <section
       ref={containerRef}
       className="relative w-full overflow-hidden"
-      style={{ height: "85vh", backgroundColor: "#FFFFFF", marginTop: 0, paddingTop: 0 }}
+      style={{ height: "85vh", backgroundColor: "#FFFFFF", marginTop: navbarH, padding: 0 }}
     >
       {/* Current slide image — top-aligned */}
       <img
