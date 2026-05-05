@@ -16,11 +16,13 @@ function drawTop(
   H: number
 ) {
   if (!img.naturalWidth) return;
-  // Scale to cover width, anchor to top edge
-  const scale = Math.max(W / img.naturalWidth, H / img.naturalHeight);
-  const sw = img.naturalWidth * scale;
-  const sh = img.naturalHeight * scale;
-  ctx.drawImage(img, (W - sw) / 2, 0, sw, sh);
+  // Scale so the image fills the full canvas width exactly.
+  // sy=0: always sample from the very top of the source.
+  // Anything below the canvas bottom is simply not drawn (cropped).
+  const scale = W / img.naturalWidth;
+  const srcH = Math.min(H / scale, img.naturalHeight);
+  const dstH = srcH * scale; // equals H when image is tall enough
+  ctx.drawImage(img, 0, 0, img.naturalWidth, srcH, 0, 0, W, dstH);
 }
 
 export default function HeroSlideshow() {
