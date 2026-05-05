@@ -1,46 +1,9 @@
-import { Link } from "react-router-dom";
+import HeroSlideshow from "@/components/hero-slideshow";
 
 export default function Home() {
   return (
     <>
-      {/* Hero — full viewport */}
-      <section className="h-screen flex flex-col items-center justify-center text-center px-8 pt-16 relative">
-        <div className="space-y-10 max-w-4xl">
-          <div className="space-y-4">
-            <p className="text-[11px] tracking-[0.35em] uppercase text-ink/40">
-              Pre-Launch — Now Live on Kickstarter
-            </p>
-            <h1 className="font-serif text-[14vw] sm:text-[11vw] md:text-[9rem] italic leading-none tracking-tight text-ink select-none">
-              LUMÍCHE
-            </h1>
-            <p className="text-sm tracking-[0.3em] uppercase text-ink/50 font-light">
-              Scarcity by design. Beauty by intention.
-            </p>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-5">
-            <a
-              href="https://kickstarter.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block border border-ink text-ink px-12 py-4 text-[11px] tracking-[0.28em] uppercase hover:bg-ink hover:text-bg transition-colors duration-300"
-            >
-              Back This Project
-            </a>
-            <Link
-              to="/collection"
-              className="text-[11px] tracking-[0.2em] uppercase text-ink/50 hover:text-ink transition-colors"
-            >
-              View the Collection →
-            </Link>
-          </div>
-        </div>
-
-        {/* Scroll indicator */}
-        <div className="absolute bottom-10 left-1/2 -translate-x-1/2">
-          <div className="w-px h-12 bg-ink/20" />
-        </div>
-      </section>
+      <HeroSlideshow />
 
       {/* Editorial pullquote */}
       <section className="py-36 px-8">
