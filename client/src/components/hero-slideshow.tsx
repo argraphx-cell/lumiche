@@ -5,201 +5,214 @@ import hero3 from "@/assets/hero3.PNG";
 
 const SLIDES = [hero1, hero2, hero3];
 
-const BLOCK = 8;            // fine mosaic block size in px
+const COLS = 20;
+const ROWS = 14;
+const TOTAL = COLS * ROWS;
 const HOLD_MS = 5000;
-const DISSOLVE_FRAMES = 72; // ~1.2 s at 60 fps
+const SPREAD_S = 0.85;   // random-delay spread across all cells
+const CELL_S = 0.2;      // each cell's individual opacity duration
+const DISSOLVE_MS = (SPREAD_S + CELL_S) * 1000 + 100; // total + buffer
 
-function drawTop(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
-  W: number,
-  H: number
-) {
-  if (!img.naturalWidth) return;
-  // Scale so the image fills the full canvas width exactly.
-  // sy=0: always sample from the very top of the source.
-  // Anything below the canvas bottom is simply not drawn (cropped).
-  const scale = W / img.naturalWidth;
-  const srcH = Math.min(H / scale, img.naturalHeight);
-  const dstH = srcH * scale; // equals H when image is tall enough
-  ctx.drawImage(img, 0, 0, img.naturalWidth, srcH, 0, 0, W, dstH);
+// Exact CSS required by spec
+const SLIDE_IMG: React.CSSProperties = {
+  width: "100%",
+  height: "100%",
+  objectFit: "cover",
+  objectPosition: "top center",
+  position: "absolute",
+  top: 0,
+  left: 0,
+};
+
+function makeDelays(): number[] {
+  // Fisher-Yates shuffle → map rank to a delay in [0, SPREAD_S]
+  const arr = Array.from({ length: TOTAL }, (_, i) => i);
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr.map(rank => (rank / TOTAL) * SPREAD_S);
 }
 
 export default function HeroSlideshow() {
-  const [visIdx, setVisIdx] = useState(0);
+  const [current, setCurrent] = useState(0);
+  const [nextIdx, setNextIdx] = useState(0);
   const [dotIdx, setDotIdx] = useState(0);
-  const [showCanvas, setShowCanvas] = useState(false);
+  const [showMosaic, setShowMosaic] = useState(false);
+  // Separate flag so we can let cells mount at opacity:0 before triggering transition
+  const [mosaicActive, setMosaicActive] = useState(false);
+  const [delays, setDelays] = useState<number[]>(() => Array(TOTAL).fill(0));
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const imgEls = useRef<HTMLImageElement[]>([]);
-  const rafRef = useRef<number>(0);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
   const busyRef = useRef(false);
   const currentRef = useRef(0);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const dissolveTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
+  // One RAF after showMosaic=true so cells start at 0 and animate to 1
   useEffect(() => {
-    SLIDES.forEach((src, i) => {
-      const img = new Image();
-      img.src = src;
-      imgEls.current[i] = img;
-    });
+    if (!showMosaic) { setMosaicActive(false); return; }
+    const id = requestAnimationFrame(() => setMosaicActive(true));
+    return () => cancelAnimationFrame(id);
+  }, [showMosaic]);
+
+  const goTo = useCallback((toIdx: number) => {
+    if (busyRef.current || toIdx === currentRef.current) return;
+    busyRef.current = true;
+    clearTimeout(holdTimerRef.current);
+    clearTimeout(dissolveTimerRef.current);
+
+    setNextIdx(toIdx);
+    setDotIdx(toIdx);
+    setDelays(makeDelays());
+    setShowMosaic(true);
+
+    dissolveTimerRef.current = setTimeout(() => {
+      currentRef.current = toIdx;
+      setCurrent(toIdx);
+      setShowMosaic(false);
+      busyRef.current = false;
+
+      holdTimerRef.current = setTimeout(() => {
+        goTo((toIdx + 1) % SLIDES.length);
+      }, HOLD_MS);
+    }, DISSOLVE_MS);
   }, []);
 
-  const dissolve = useCallback(
-    (from: number, to: number, onComplete: () => void) => {
-      const canvas = canvasRef.current;
-      const container = containerRef.current;
-      if (!canvas || !container) { onComplete(); return; }
-
-      const W = container.clientWidth;
-      const H = container.clientHeight;
-      canvas.width = W;
-      canvas.height = H;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) { onComplete(); return; }
-
-      const fromImg = imgEls.current[from];
-      const toImg = imgEls.current[to];
-
-      const run = () => {
-        // Fisher-Yates shuffle of all block coords
-        const cols = Math.ceil(W / BLOCK);
-        const rows = Math.ceil(H / BLOCK);
-        const blocks: [number, number][] = [];
-        for (let r = 0; r < rows; r++) {
-          for (let c = 0; c < cols; c++) blocks.push([c, r]);
-        }
-        for (let i = blocks.length - 1; i > 0; i--) {
-          const j = (Math.random() * (i + 1)) | 0;
-          [blocks[i], blocks[j]] = [blocks[j], blocks[i]];
-        }
-
-        ctx.clearRect(0, 0, W, H);
-        drawTop(ctx, fromImg, W, H);
-
-        // Offscreen canvas holds the destination image
-        const off = document.createElement("canvas");
-        off.width = W;
-        off.height = H;
-        drawTop(off.getContext("2d")!, toImg, W, H);
-
-        const bpf = Math.max(1, Math.ceil(blocks.length / DISSOLVE_FRAMES));
-        let revealed = 0;
-
-        const step = () => {
-          const end = Math.min(revealed + bpf, blocks.length);
-
-          // Build a clip path covering only the new blocks this frame,
-          // then stamp the entire destination image through it — one GPU call.
-          ctx.save();
-          const path = new Path2D();
-          for (let i = revealed; i < end; i++) {
-            const [c, r] = blocks[i];
-            path.rect(c * BLOCK, r * BLOCK, BLOCK, BLOCK);
-          }
-          ctx.clip(path);
-          ctx.drawImage(off, 0, 0);
-          ctx.restore();
-
-          revealed = end;
-          if (revealed >= blocks.length) { onComplete(); return; }
-          rafRef.current = requestAnimationFrame(step);
-        };
-
-        rafRef.current = requestAnimationFrame(step);
-      };
-
-      let pending = 2;
-      const ready = () => { if (--pending === 0) run(); };
-      if (fromImg.complete) ready(); else fromImg.onload = ready;
-      if (toImg.complete) ready(); else toImg.onload = ready;
-    },
-    []
-  );
-
-  const goTo = useCallback(
-    (toIdx: number) => {
-      if (busyRef.current || toIdx === currentRef.current) return;
-      busyRef.current = true;
-      clearTimeout(timerRef.current);
-      cancelAnimationFrame(rafRef.current);
-
-      const fromIdx = currentRef.current;
-      setDotIdx(toIdx);
-      setShowCanvas(true);
-
-      dissolve(fromIdx, toIdx, () => {
-        currentRef.current = toIdx;
-        setVisIdx(toIdx);
-        setShowCanvas(false);
-        busyRef.current = false;
-
-        timerRef.current = setTimeout(() => {
-          goTo((toIdx + 1) % SLIDES.length);
-        }, HOLD_MS);
-      });
-    },
-    [dissolve]
-  );
-
   useEffect(() => {
-    timerRef.current = setTimeout(() => {
-      goTo(1);
-    }, HOLD_MS);
+    holdTimerRef.current = setTimeout(() => goTo(1), HOLD_MS);
     return () => {
-      clearTimeout(timerRef.current);
-      cancelAnimationFrame(rafRef.current);
+      clearTimeout(holdTimerRef.current);
+      clearTimeout(dissolveTimerRef.current);
     };
   }, [goTo]);
 
   return (
     <section
-      ref={containerRef}
-      className="relative w-full overflow-hidden"
-      style={{ height: "85vh", backgroundColor: "#FFFFFF", marginTop: 0, paddingTop: 0 }}
+      style={{
+        position: "relative",
+        overflow: "hidden",
+        width: "100%",
+        height: "85vh",
+        backgroundColor: "#FFFFFF",
+        margin: 0,
+        padding: 0,
+      }}
     >
-      {/* Current slide image — top-aligned */}
-      <img
-        src={SLIDES[visIdx]}
-        alt=""
-        className="absolute inset-0 w-full h-full object-cover"
-        style={{ opacity: showCanvas ? 0 : 1, objectPosition: "top center" }}
-      />
+      {/* Base slide */}
+      <img src={SLIDES[current]} alt="" style={SLIDE_IMG} />
 
-      {/* Pixel-dissolve canvas */}
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 w-full h-full"
-        style={{ display: showCanvas ? "block" : "none" }}
-      />
+      {/* Mosaic dissolve grid — mounts when a transition begins */}
+      {showMosaic && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "grid",
+            gridTemplateColumns: `repeat(${COLS}, 1fr)`,
+            gridTemplateRows: `repeat(${ROWS}, 1fr)`,
+            zIndex: 1,
+          }}
+        >
+          {Array.from({ length: TOTAL }, (_, i) => {
+            const col = i % COLS;
+            const row = Math.floor(i / COLS);
+            return (
+              <div
+                key={i}
+                style={{
+                  position: "relative",
+                  overflow: "hidden",
+                  // Cells start transparent; mosaicActive flips them to 1 with per-cell delay
+                  opacity: mosaicActive ? 1 : 0,
+                  transition: mosaicActive
+                    ? `opacity ${CELL_S}s ease ${delays[i].toFixed(3)}s`
+                    : "none",
+                }}
+              >
+                {/*
+                  The img is sized to the full container (COLS×ROWS of the cell),
+                  then offset so this cell's window shows exactly its portion.
+                  Percentages are relative to the containing cell, so:
+                    width: COLS*100% = container width
+                    height: ROWS*100% = container height
+                    left: -col*100% = -col * cell_width
+                    top:  -row*100% = -row * cell_height
+                */}
+                <img
+                  src={SLIDES[nextIdx]}
+                  alt=""
+                  style={{
+                    position: "absolute",
+                    width: `${COLS * 100}%`,
+                    height: `${ROWS * 100}%`,
+                    left: `${-col * 100}%`,
+                    top: `${-row * 100}%`,
+                    objectFit: "cover",
+                    objectPosition: "top center",
+                  }}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
 
-      {/* CTA — bottom center, above dots */}
-      <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10">
+      {/* CTA button — bottom center, above dots */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: "5rem",
+          left: "50%",
+          transform: "translateX(-50%)",
+          zIndex: 10,
+        }}
+      >
         <a
           href="https://kickstarter.com"
           target="_blank"
           rel="noopener noreferrer"
           className="inline-block px-12 py-4 text-[11px] tracking-[0.28em] uppercase transition-colors duration-300 whitespace-nowrap"
           style={{ border: "1px solid rgba(17,17,17,0.5)", color: "rgba(17,17,17,0.5)" }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = "white"; e.currentTarget.style.color = "white"; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(17,17,17,0.5)"; e.currentTarget.style.color = "rgba(17,17,17,0.5)"; }}
+          onMouseEnter={e => {
+            e.currentTarget.style.borderColor = "white";
+            e.currentTarget.style.color = "white";
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.borderColor = "rgba(17,17,17,0.5)";
+            e.currentTarget.style.color = "rgba(17,17,17,0.5)";
+          }}
         >
           Back This Project
         </a>
       </div>
 
       {/* Dot indicators */}
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-3 z-10">
+      <div
+        style={{
+          position: "absolute",
+          bottom: "2rem",
+          left: "50%",
+          transform: "translateX(-50%)",
+          display: "flex",
+          gap: "0.75rem",
+          zIndex: 10,
+        }}
+      >
         {SLIDES.map((_, i) => (
           <button
             key={i}
             onClick={() => goTo(i)}
             aria-label={`Go to slide ${i + 1}`}
-            className="w-2 h-2 rounded-full transition-all duration-300"
             style={{
+              width: "0.5rem",
+              height: "0.5rem",
+              borderRadius: "50%",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
               backgroundColor: i === dotIdx ? "white" : "rgba(255,255,255,0.38)",
               transform: i === dotIdx ? "scale(1.45)" : "scale(1)",
+              transition: "all 0.3s",
             }}
           />
         ))}
