@@ -155,14 +155,14 @@ export default function HeroSlideshow() {
     <section
       ref={containerRef}
       className="relative w-full overflow-hidden"
-      style={{ height: "85vh", backgroundColor: "#FFFFFF" }}
+      style={{ height: "85vh", backgroundColor: "#FFFFFF", marginTop: 0, paddingTop: 0 }}
     >
       {/* Current slide image — top-aligned */}
       <img
         src={SLIDES[visIdx]}
         alt=""
-        className="absolute inset-0 w-full h-full object-cover object-top"
-        style={{ opacity: showCanvas ? 0 : 1 }}
+        className="absolute inset-0 w-full h-full object-cover"
+        style={{ opacity: showCanvas ? 0 : 1, objectPosition: "top center" }}
       />
 
       {/* Pixel-dissolve canvas */}
@@ -178,7 +178,10 @@ export default function HeroSlideshow() {
           href="https://kickstarter.com"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-block border border-white text-white px-12 py-4 text-[11px] tracking-[0.28em] uppercase hover:bg-white hover:text-ink transition-colors duration-300 whitespace-nowrap"
+          className="inline-block px-12 py-4 text-[11px] tracking-[0.28em] uppercase transition-colors duration-300 whitespace-nowrap"
+          style={{ border: "1px solid rgba(17,17,17,0.5)", color: "rgba(17,17,17,0.5)" }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = "white"; e.currentTarget.style.color = "white"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(17,17,17,0.5)"; e.currentTarget.style.color = "rgba(17,17,17,0.5)"; }}
         >
           Back This Project
         </a>
